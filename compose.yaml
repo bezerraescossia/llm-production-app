@@ -15,6 +15,10 @@ services:
       PLACEHOLDER_TOKEN_DELAY_MS: ${PLACEHOLDER_TOKEN_DELAY_MS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENABLE_DOCS: ${ENABLE_DOCS:-false}
+      # Gateway: YAML with tiers and models (built-in stub-only config when empty) and credentials.
+      GATEWAY_CONFIG: ${GATEWAY_CONFIG:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,6 +26,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
     stop_grace_period: 30s
 
   postgres:

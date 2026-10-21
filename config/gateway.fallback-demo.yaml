@@ -1,0 +1,14 @@
+# Offline demo: every model is the built-in stub, so no credentials or network are needed.
+# The medium tier (the one the chat route uses) first tries a stub model that always fails with a
+# temporary error, so every request is retried once and then falls back to a healthy model.
+# Use it with:  GATEWAY_CONFIG=config/gateway.fallback-demo.yaml docker compose up --build --wait
+# Watch it work: docker compose logs service | grep completion_
+default_tier: medium
+
+tiers:
+  small:
+    models: [stub/default]
+  medium:
+    models: [stub/fail-temporary, stub/default]
+  large:
+    models: [stub/default]
