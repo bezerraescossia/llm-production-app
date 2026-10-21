@@ -25,6 +25,8 @@ By the owner's decision this one transition is accepted, because 1.0.0 has no de
   `--err-ignore`, it makes the 1.0.0 → 1.1.0 diff pass. Verified: with the file the diff is clean, and an
   unrelated breaking change (a removed route) is still reported.
 - From 1.1.0 on, adding a code to the extensible enum is not flagged, so the ignore file is **single use**.
-  Once 1.1.0 is the baseline on the default branch, delete the file and the script option's reference to it.
+  **Expired 2026-10-21:** contract 1.1.0 became the baseline on `main`, so `contracts/oasdiff-ignore.txt` and the
+  script's reference to it were deleted (task T058). `oasdiff-ignore-1.0-to-1.1.txt` stays here only as the
+  record of what the exception covered.
 - The constitution needs a short amendment saying an exception to a MUST requires a written reason and an
   expiry. That amendment is task T004 and must be committed before the contract change is applied (T011).

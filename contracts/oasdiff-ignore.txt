@@ -1,7 +1,0 @@
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `400`
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `401`
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `413`
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `422`
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `429`
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `500`
-POST /v1/chat/stream removed the enum constraint from the `error/code` response property for the response status `503`
