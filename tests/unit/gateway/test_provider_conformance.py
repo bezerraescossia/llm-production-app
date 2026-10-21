@@ -70,7 +70,9 @@ class FakeCompletion:
 
 
 def litellm_provider(fake: FakeCompletion) -> LiteLLMProvider:
-    return LiteLLMProvider("openai", api_key="sk-test-key", completion=fake)
+    return LiteLLMProvider(
+        "openai", api_key="sk-test-key", completion=fake, params_check=lambda p, m: set()
+    )
 
 
 def summarize(

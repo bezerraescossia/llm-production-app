@@ -6,12 +6,12 @@ from typing import Any
 
 from ai_services.gateway.config import GatewayConfig, Tier
 from ai_services.gateway.errors import UnknownTierError
+from ai_services.gateway.limits import resolve_generation
 from ai_services.gateway.providers.base import Provider, ProviderChunk
 from ai_services.gateway.types import (
     Completion,
     CompletionRequest,
     FinishReason,
-    GenerationSettings,
 )
 
 Event = tuple[str, dict[str, Any]]
@@ -71,6 +71,10 @@ class Gateway:
         self._providers = providers
 
     @property
+    def config(self) -> GatewayConfig:
+        return self._config
+
+    @property
     def default_tier(self) -> str:
         return self._config.default_tier
 
@@ -84,16 +88,7 @@ class Gateway:
         tier = self._tier(request.tier)
         candidate = tier.models[0]
         provider = self._providers[candidate.provider]
-        limits = tier.generation
-        settings = GenerationSettings(
-            max_output_tokens=request.settings.max_output_tokens
-            or limits.max_output_tokens.default,
-            temperature=(
-                request.settings.temperature
-                if request.settings.temperature is not None
-                else limits.temperature.default
-            ),
-        )
+        settings = resolve_generation(tier.generation, request.settings)
         chunks = provider.stream(candidate.model_id, request.messages, settings)
         events = _events(chunks)
         first = await anext(events)

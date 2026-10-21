@@ -13,8 +13,8 @@ from ai_services.auth import ServiceAuthMiddleware
 from ai_services.config import Settings, load_settings
 from ai_services.contract_version import load_contract_version
 from ai_services.errors import install_error_handlers
-from ai_services.gateway import Gateway
 from ai_services.gateway.config import GatewayConfig
+from ai_services.gateway.factory import build_gateway
 from ai_services.gateway.providers.stub import StubProvider
 from ai_services.logging import configure_logging, get_logger
 from ai_services.middleware import (
@@ -102,7 +102,7 @@ def create_app(
         delay_ms=settings.placeholder_token_delay_ms,
         fail_after=lambda: getattr(app.state, "fail_after_events", None),
     )
-    app.state.gateway = Gateway(gateway_config or GatewayConfig.default(), {"stub": stub})
+    app.state.gateway = build_gateway(settings, stub, gateway_config)
 
     install_error_handlers(app)
     app.include_router(chat.router)

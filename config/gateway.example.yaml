@@ -21,6 +21,11 @@ cooldown:
   failure_threshold: 3       # consecutive failures before a model is skipped
   seconds: 30                # how long it is skipped
 
+# Generation settings: the defaults below apply when a caller asks for nothing; callers may lower a
+# value but never exceed the ceiling. Some models (the Claude 5.5 and GPT-5 families) accept only
+# their own default temperature; for those the gateway drops `temperature` explicitly and logs
+# `gateway_params_dropped` once at startup, so the value below is ignored for them.
+#
 # Fallback stays inside a tier, in the order listed. Alternating providers lets a tier survive
 # the outage of one provider.
 tiers:

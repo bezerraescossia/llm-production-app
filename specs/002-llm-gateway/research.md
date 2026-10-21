@@ -110,6 +110,11 @@ Messages are generic; provider text never leaves the service.
   lower a value; asking for more than the ceiling raises a programming error. At startup the loader asks
   LiteLLM which parameters each configured model supports and drops unsupported ones (for example a model
   that accepts no temperature) explicitly, logging the model and parameter once, never silently.
+- **Verified offline (T033-T035)**: LiteLLM's own parameter mapping raises `UnsupportedParamsError` for any
+  temperature other than 1 on `gpt-5-nano-2025-08-07`, `gpt-5-2025-08-07` and `claude-haiku-5-5`, although
+  `get_supported_openai_params` lists `temperature` as supported. So "is the parameter listed" is the wrong
+  check; the adapter asks the library whether the model accepts a probe value (`default_params_check`),
+  caches the answer per model, omits the parameter explicitly and logs `gateway_params_dropped` at startup.
 - **Risk to verify with a live check**: reasoning-style models can spend the output budget on hidden
   reasoning and return little or no text with finish reason `length`. Defaults are therefore generous
   (small 2048, medium 4096, large 8192; ceilings 4096, 8192, 16384). Revisit after the live check.

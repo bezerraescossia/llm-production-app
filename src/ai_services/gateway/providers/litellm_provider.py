@@ -19,7 +19,9 @@ from litellm.exceptions import (
     ServiceUnavailableError,
     Timeout,
     UnprocessableEntityError,
+    UnsupportedParamsError,
 )
+from litellm.utils import get_optional_params
 
 from ai_services.gateway.errors import ProviderCategory, ProviderError
 from ai_services.gateway.providers.base import ProviderChunk
@@ -27,6 +29,10 @@ from ai_services.gateway.types import FinishReason, GenerationSettings
 from ai_services.schemas import Message
 
 CompletionCall = Callable[..., Awaitable[AsyncIterator[Any]]]
+ParamsCheck = Callable[[str, str], set[str]]
+
+# Probe values: anything other than the one value some models insist on (temperature 1).
+_PROBES: dict[str, Any] = {"temperature": 0.5, "max_tokens": 100}
 
 _FINISH_REASONS: dict[str, FinishReason] = {
     "stop": "stop",
@@ -53,6 +59,28 @@ _CLASSIFICATION: list[tuple[type[BaseException], ProviderCategory]] = [
 ]
 
 
+def is_known_model(provider: str, model_id: str) -> bool:
+    """True if the library's (version-pinned, local) model map knows this model."""
+    return model_id in litellm.model_cost or f"{provider}/{model_id}" in litellm.model_cost
+
+
+def default_params_check(provider: str, model_id: str) -> set[str]:
+    """Names of generation parameters this model does not accept (asked of the library itself).
+
+    Some models (the Claude 5.5 and GPT-5 families) accept only their default temperature, and
+    the library raises for any other value, so those parameters are dropped explicitly.
+    """
+    dropped: set[str] = set()
+    for name, probe in _PROBES.items():
+        try:
+            get_optional_params(model=model_id, custom_llm_provider=provider, **{name: probe})
+        except UnsupportedParamsError:
+            dropped.add(name)
+        except Exception:  # noqa: BLE001 - an unmapped model is not a reason to drop anything
+            continue
+    return dropped
+
+
 def classify(exc: BaseException) -> ProviderError | None:
     """Map a LiteLLM exception to a ProviderError, or None if it is not a provider failure."""
     for exc_type, category in _CLASSIFICATION:
@@ -72,11 +100,23 @@ def _retry_after(exc: BaseException) -> float | None:
 
 class LiteLLMProvider:
     def __init__(
-        self, provider: str, api_key: str | None, completion: CompletionCall | None = None
+        self,
+        provider: str,
+        api_key: str | None,
+        completion: CompletionCall | None = None,
+        params_check: ParamsCheck | None = None,
     ) -> None:
         self._provider = provider
         self._api_key = api_key
+        self._params_check = params_check or default_params_check
+        self._dropped: dict[str, set[str]] = {}
         self._completion: CompletionCall = completion or cast(CompletionCall, litellm.acompletion)
+
+    def dropped_params(self, model_id: str) -> set[str]:
+        """Generation parameters to omit for this model (computed once, then cached)."""
+        if model_id not in self._dropped:
+            self._dropped[model_id] = set(self._params_check(self._provider, model_id))
+        return self._dropped[model_id]
 
     async def stream(
         self,
@@ -92,9 +132,12 @@ class LiteLLMProvider:
             "stream": True,
             "stream_options": {"include_usage": True},
             "api_key": self._api_key,
-            "max_tokens": settings.max_output_tokens,
-            "temperature": settings.temperature,
         }
+        dropped = self.dropped_params(model_id)
+        if "max_tokens" not in dropped:
+            kwargs["max_tokens"] = settings.max_output_tokens
+        if "temperature" not in dropped:
+            kwargs["temperature"] = settings.temperature
         if timeout_seconds is not None:
             kwargs["timeout"] = timeout_seconds
 
