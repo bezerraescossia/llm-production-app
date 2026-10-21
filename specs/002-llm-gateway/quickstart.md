@@ -73,3 +73,37 @@ SERVICE_TOKEN=... uv run python scripts/load-test.py --streams 20
 ```
 Expected: all spec 001 tests still pass unchanged (SC-009); p95 time to first event under 500 ms with the
 stub, and the gateway adds under 50 ms (SC-006).
+
+## Verified on
+
+**2026-10-21, local Docker Compose and local Uvicorn.** Not run: step 8 (real providers) and the `live` tests,
+because this machine has no provider credentials; the live tests exist and skip cleanly without keys.
+
+- **Step 1** (default, stub only): the real image starts healthy, `gateway_ready` lists `stub/default` for all
+  three tiers, `scripts/smoke.sh` passes.
+- **Step 2** (offline fallback): with `config/gateway.fallback-demo.yaml` the logs for one request show a
+  `completion_attempt_failed` on `stub/fail-temporary` (category `temporary`) and a `completion_finished`
+  on `stub/default` with `fallback_used: true`, tenant and user attached, and no prompt text.
+- **Step 3** (every model fails): `[fail-temporary, fail-rate-limited]` gives 503 `upstream_unavailable` with
+  `Retry-After: 5`; `[fail-timeout]` gives 504 `upstream_timeout`; `[fail-auth]` gives 502 `upstream_error`;
+  all as `application/json` in the standard error shape, no stream opened.
+- **Step 4** (failure after output): `[fail-midstream, default]` gives 200 with `token`, `token`, `error` and
+  no fallback.
+- **Step 5** (safety block): `[blocked, default]` gives `usage` then `done` with `blocked`.
+- **Step 6** (limits): a model that never answers with `pre_output_seconds: 1.2` returns 504 after 1.21 s,
+  with both attempts logged; a client that gives up while waiting for the first output is covered by the
+  automated test `test_gateway_cancellation.py` (provider stream closed within 1.5 s).
+- **Step 7** (refusals): a moving alias, a duplicate model, a missing `ANTHROPIC_API_KEY`, an unknown model
+  and an empty tier each stop startup with a message naming the entry; the credential value appeared in none
+  of them.
+- **Step 9**: the full-answer helper is covered by `test_gateway_stream.py` and `test_gateway_failover.py`.
+- **Step 10** (no content in logs): `test_no_content_in_gateway_logs.py` scans success, fallback, total
+  failure, failure after output, safety block, rejected request, cancellation, the helper and an invalid
+  startup for prompt text, answer text and credentials; none appear. The container logs of the demo run
+  contained no prompt text either.
+- **Step 11** (contract gate): the gate passes 1.0.0 to 1.1.0 with the single-use ignore file, fails without it,
+  and still fails on an unrelated breaking change (task T017).
+- **Step 12** (regression and load): all spec 001 tests still pass unchanged; under the fallback demo config
+  `load-test.py` completed 20 of 20 streams (first event p95 31 ms) and 100 of 100 (p95 224 ms), each stream
+  ending in exactly one `done`. Under the default config: 20 streams p95 27 ms, 100 streams p95 205 ms.
+

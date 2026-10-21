@@ -65,6 +65,29 @@ codes; 1 new internal module tree (about 10 files).
 **Post-design re-check (after Phase 1)**: unchanged. Phase 1 added no service or storage; the one new
 runtime dependency (`litellm`) is mandated by roadmap C-03.
 
+**Post-implementation re-check (task T057, 2026-10-21)** against the finished code:
+
+| Principle | Result | Evidence and notes |
+|---|---|---|
+| I. Contract-first | Pass, exception in force | Contract 1.1.0 was applied test-first; the single-use gate exception rests on constitution 1.3.0 (Exceptions) and is deleted by T058 after merge. Known gap: the event schema is outside the OpenAPI gate, so the nullable token counts were reviewed by hand and are covered by the contract tests only |
+| II. Eval-gated | Deferred (owner: spec 004) | Roadmap 1.4.0 names spec 004 for the eval gate on model-tier changes |
+| III. Test-first | Pass | Every story's tests were written and seen failing before the code. One test passed immediately by design: the overhead test (T055) guards a requirement the architecture already met |
+| IV. Defense in depth | Pass | A safety block is never retried or routed around; tests in `test_gateway_failover.py` and `test_gateway_failures.py` |
+| V. Tenant isolation | Pass | The gateway keeps no per-tenant state; spec 001's concurrent two-tenant isolation test passes unchanged through the gateway |
+| VI. Cost and observability | Deferred (owner: spec 003) | `completion_finished` and `completion_attempt_failed` are content-free (scan test over nine scenarios) and feed spec 003 |
+| VII. Reproducibility | Pass | `litellm` pinned; model ids pinned and validated against the package's local model map (no network at startup, regression-tested); `docker compose up` works with no credentials |
+
+**Deviations found while implementing** (none changes a requirement):
+
+- The Claude 5.5 and GPT-5 models accept only their default temperature (verified with LiteLLM's own mapping), so the
+  adapter asks the library which values a model accepts and drops the rest explicitly (research R13).
+- LiteLLM loads a `.env` file on import in its default mode and may download its model map; both are switched
+  off in `gateway/providers/__init__.py` (regression tests added).
+- `gateway/factory.py` was added (not in the plan's tree) to build the gateway at startup.
+- A closed-before-started stream could leak the upstream stream; `CompletionStream` now closes the inner stream.
+- The stub gained `fail-unavailable`, `fail-context` and `stall-midstream` models.
+- The Docker image grew to about 629 MB because of `litellm`, as recorded under Complexity Tracking.
+
 ## Project Structure
 
 ### Documentation (this feature)

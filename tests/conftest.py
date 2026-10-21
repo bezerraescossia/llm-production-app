@@ -4,6 +4,7 @@ import os
 
 # Keep LiteLLM from loading the developer's .env into the test process when a test imports it.
 os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import asyncio
 import contextlib

@@ -83,8 +83,9 @@ Messages are generic; provider text never leaves the service.
 
 ## R10 — The stub provider doubles as the fault-injection tool
 - **Decision**: stub model ids select behavior: `stub/default`, `stub/slow`, `stub/empty`, `stub/blocked`,
-  `stub/fail-temporary`, `stub/fail-rate-limited`, `stub/fail-timeout`, `stub/fail-auth`,
-  `stub/fail-invalid`, `stub/fail-midstream`, `stub/stall`. A YAML tier such as
+  `stub/fail-temporary`, `stub/fail-rate-limited`, `stub/fail-timeout`, `stub/fail-unavailable`,
+  `stub/fail-auth`, `stub/fail-context`, `stub/fail-invalid`, `stub/fail-midstream`, `stub/stall` (never
+  answers) and `stub/stall-midstream` (one piece, then silence). A YAML tier such as
   `[stub/fail-temporary, stub/default]` demonstrates fallback end to end, offline.
 - **Compatibility**: `stub/default` honors spec 001's `PLACEHOLDER_TOKEN_DELAY_MS` and the test hook
   `app.state.fail_after_events` (raising a plain `RuntimeError`, which the gateway maps to

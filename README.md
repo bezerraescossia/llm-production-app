@@ -27,6 +27,24 @@ curl -N localhost:8080/v1/chat/stream \
 
 Full validation steps are in the [quickstart](specs/001-service-foundation/quickstart.md).
 
+## Models and the LLM gateway
+
+Every completion goes through the gateway: callers ask for a **tier** (`small`, `medium`, `large`) and
+never for a specific model. Which exact models serve each tier, in fallback order, is configuration.
+
+- **Default:** with nothing configured every tier is served by a built-in stub, so the stack runs with no
+  credentials and no cost.
+- **Real models:** copy `config/gateway.example.yaml` to `config/gateway.local.yaml`, edit it, then set
+  `GATEWAY_CONFIG=config/gateway.local.yaml`, `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` in `.env`.
+  Model ids must be exact (no `latest` aliases); an invalid file stops startup with a message naming the entry.
+- **Fallback demo, offline:** `GATEWAY_CONFIG=config/gateway.fallback-demo.yaml docker compose up --build --wait`
+  makes every request fail over from a failing stub model to a healthy one; watch it with
+  `docker compose logs service | grep completion_`.
+- **Failure behavior:** retries, then fallback within the tier only; a failure before any output is an HTTP error
+  (503, 504, 502, 422), after output an `error` event; limits on waiting and total time; no prompt or answer
+  text in logs. Details in [specs/002-llm-gateway](specs/002-llm-gateway/spec.md).
+- **Real-provider checks** cost a little and are opt-in: `uv run pytest -m live tests/live`.
+
 ## Contract and versioning
 
 The HTTP and SSE contract is in [`contracts/v1/`](contracts/v1/) (`openapi.yaml`, `events.schema.json`).
