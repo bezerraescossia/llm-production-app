@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: AI-Services API
-  version: 1.0.0
+  version: 1.1.0
   description: >
     Contract between the API gateway and the AI-services layer. The major version is carried in the URL path.
     Spec 001 returns a deterministic placeholder answer; later specs change what the stream contains, not its shape.
@@ -51,8 +51,12 @@ paths:
           $ref: '#/components/responses/RateLimited'
         '500':
           $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
         '503':
           $ref: '#/components/responses/ShuttingDown'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
   /v1/health/live:
     get:
       operationId: healthLive
@@ -205,7 +209,10 @@ components:
           pattern: '^\d+\.\d+\.\d+$'
     ErrorCode:
       type: string
-      enum:
+      description: >
+        Stable machine-readable error code. The set grows over time: clients MUST treat a code they do not
+        recognise as a generic failure and use the HTTP status.
+      x-extensible-enum:
         - unauthorized
         - invalid_identity
         - validation_error
@@ -215,6 +222,10 @@ components:
         - shutting_down
         - not_found
         - method_not_allowed
+        - upstream_unavailable
+        - upstream_timeout
+        - upstream_error
+        - input_too_large
         - internal_error
     Error:
       type: object
@@ -267,7 +278,9 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     Unprocessable:
-      description: Body fails validation (`validation_error`) or history exceeds the limit (`history_too_long`).
+      description: >
+        Body fails validation (`validation_error`), history exceeds the message limit (`history_too_long`),
+        or the conversation is too large for every model of the tier (`input_too_large`).
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -296,12 +309,34 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ShuttingDown:
-      description: Service is draining and refuses new requests.
+      description: >
+        Service is draining (`shutting_down`), or every model of the tier is unavailable or rate-limited
+        and nothing was streamed (`upstream_unavailable`).
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
         Retry-After:
           $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadGateway:
+      description: >
+        The model provider rejected the request in a way retries or fallback cannot fix
+        (`upstream_error`), for example a configuration or credential problem. Nothing was streamed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    GatewayTimeout:
+      description: Every attempt timed out before any output (`upstream_timeout`). Nothing was streamed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/json:
           schema:

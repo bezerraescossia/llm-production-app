@@ -57,10 +57,21 @@ _ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
     400: {"model": Error, "description": "Tenant or user identity missing or invalid."},
     401: {"model": Error, "description": "Missing or invalid service credential."},
     413: {"model": Error, "description": "Body exceeds the size limit."},
-    422: {"model": Error, "description": "Body fails validation or history exceeds the limit."},
+    422: {
+        "model": Error,
+        "description": "Validation failed, history over the limit, or input too large.",
+    },
     429: {"model": Error, "description": "Reserved: rate limit exceeded."},
     500: {"model": Error, "description": "Unexpected failure before streaming started."},
-    503: {"model": Error, "description": "Service is draining and refuses new requests."},
+    502: {
+        "model": Error,
+        "description": "The model provider rejected the request (upstream_error).",
+    },
+    503: {
+        "model": Error,
+        "description": "Service is draining, or every model of the tier is unavailable.",
+    },
+    504: {"model": Error, "description": "Every attempt timed out before any output."},
 }
 
 

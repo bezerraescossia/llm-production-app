@@ -48,3 +48,18 @@ def test_unknown_event_is_rejected_by_schema() -> None:
 
 def test_tool_events_are_documented_as_informational() -> None:
     assert "tool_call and tool_result are informational" in SCHEMA["description"]
+
+
+def test_usage_frame_with_unknown_token_counts_validates() -> None:
+    event = {
+        "event": "usage",
+        "data": {"input_tokens": None, "output_tokens": None, "cost_usd": None},
+    }
+    VALIDATOR.validate(event)
+    assert not VALIDATOR.is_valid(
+        {"event": "usage", "data": {"input_tokens": -1, "output_tokens": 0, "cost_usd": None}}
+    )
+
+
+def test_schema_documents_that_token_counts_may_be_null() -> None:
+    assert "token counts may be null" in SCHEMA["description"]

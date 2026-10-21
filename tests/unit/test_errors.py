@@ -22,6 +22,10 @@ EXPECTED = {
     "shutting_down": 503,
     "not_found": 404,
     "method_not_allowed": 405,
+    "upstream_unavailable": 503,
+    "upstream_timeout": 504,
+    "upstream_error": 502,
+    "input_too_large": 422,
     "internal_error": 500,
 }
 
@@ -82,6 +86,21 @@ async def test_internal_error_is_generic_and_carries_request_id(c: httpx.AsyncCl
     assert "hunter2" not in r.text and "RuntimeError" not in r.text
     assert body["request_id"] == "client-req-0001"
     assert r.headers["x-request-id"] == "client-req-0001"
+
+
+async def test_retry_after_header_for_upstream_unavailable() -> None:
+    app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+    install_error_handlers(app)
+    app.add_middleware(RequestContextMiddleware, contract_version="1.1.0")
+
+    @app.get("/down")
+    async def down() -> None:
+        raise ServiceError(ErrorCode.UPSTREAM_UNAVAILABLE, "try later", retry_after_seconds=5)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
+        r = await c.get("/down")
+    assert r.status_code == 503 and r.headers["retry-after"] == "5"
+    assert r.json()["error"]["code"] == "upstream_unavailable"
 
 
 def test_set_context_helper_available() -> None:

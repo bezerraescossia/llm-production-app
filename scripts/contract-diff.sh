@@ -8,6 +8,10 @@
 # Fails when contracts/v1/openapi.yaml has a breaking change relative to the base, unless a new
 # major version exists: contracts/v2/openapi.yaml with a higher major `info.version`
 # (constitution principle I: breaking changes MUST bump the MAJOR version).
+#
+# One-time exception (constitution 1.3.0, Exceptions): if contracts/oasdiff-ignore.txt exists, its lines
+# are passed to oasdiff as --err-ignore. It names exactly the findings of contract 1.1.0's error-code
+# change and is SINGLE USE: delete it once 1.1.0 is the baseline on the default branch (task T058).
 set -euo pipefail
 
 OASDIFF_IMAGE="tufin/oasdiff@sha256:0d91f61ec0f2fae305f492a2d5b553938871da22ed6965c6a914e73416b0d4d2"
@@ -26,9 +30,16 @@ else
 fi
 cp "$HEAD_FILE" "$workdir/head.yaml"
 
+ignore_args=()
+if [[ -f contracts/oasdiff-ignore.txt ]]; then
+  cp contracts/oasdiff-ignore.txt "$workdir/ignore.txt"
+  ignore_args=(--err-ignore /w/ignore.txt)
+  echo "NOTICE: contracts/oasdiff-ignore.txt is in use (one-time exception, see constitution 1.3.0)."
+fi
+
 major() { sed -n 's/^  version: *\([0-9]*\)\..*/\1/p' "$1" | head -n1; }
 
-if docker run --rm -v "$workdir:/w:ro" "$OASDIFF_IMAGE" breaking /w/base.yaml /w/head.yaml --fail-on ERR; then
+if docker run --rm -v "$workdir:/w:ro" "$OASDIFF_IMAGE" breaking /w/base.yaml /w/head.yaml "${ignore_args[@]}" --fail-on ERR; then
   echo "No breaking changes."
   exit 0
 fi

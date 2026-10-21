@@ -56,3 +56,24 @@ def test_unknown_event_and_bad_payload_rejected() -> None:
 def test_usage_null_cost_is_valid() -> None:
     frame = EventSequencer().next("usage", PAYLOADS["usage"])
     assert json.loads(frame.data)["cost_usd"] is None
+
+
+@pytest.mark.parametrize(
+    "counts",
+    [
+        {"input_tokens": None, "output_tokens": 5},
+        {"input_tokens": 3, "output_tokens": None},
+        {"input_tokens": None, "output_tokens": None},
+    ],
+)
+def test_usage_token_counts_may_be_unknown(counts: dict[str, int | None]) -> None:
+    payload = {**counts, "cost_usd": None}
+    frame = EventSequencer().next("usage", payload)
+    assert json.loads(frame.data) == payload
+
+
+def test_usage_negative_counts_still_rejected() -> None:
+    with pytest.raises(ValueError):
+        EventSequencer().next("usage", {"input_tokens": -1, "output_tokens": 0, "cost_usd": None})
+    with pytest.raises(ValueError):
+        EventSequencer().next("usage", {"input_tokens": 0, "output_tokens": -1, "cost_usd": None})

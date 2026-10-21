@@ -70,3 +70,29 @@ def test_bad_dependency_entry_rejected() -> None:
 def test_non_positive_limits_rejected() -> None:
     with pytest.raises(ValidationError):
         make(service_tokens=GOOD, max_request_bytes=0)
+
+
+def test_gateway_settings_default_to_unset() -> None:
+    s = make(service_tokens=GOOD)
+    assert s.gateway_config is None
+    assert s.anthropic_api_key is None and s.openai_api_key is None
+
+
+def test_empty_gateway_settings_are_treated_as_unset() -> None:
+    s = make(service_tokens=GOOD, gateway_config="", anthropic_api_key="", openai_api_key="")
+    assert s.gateway_config is None
+    assert s.anthropic_api_key is None and s.openai_api_key is None
+
+
+def test_gateway_settings_accept_values_and_hide_secrets() -> None:
+    s = make(
+        service_tokens=GOOD,
+        gateway_config="config/gateway.local.yaml",
+        anthropic_api_key="sk-ant-very-secret-value",
+        openai_api_key="sk-openai-very-secret-value",
+    )
+    assert str(s.gateway_config) == "config/gateway.local.yaml"
+    assert s.anthropic_api_key is not None
+    assert s.anthropic_api_key.get_secret_value() == "sk-ant-very-secret-value"
+    shown = repr(s) + str(s)
+    assert "very-secret-value" not in shown

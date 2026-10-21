@@ -1,9 +1,9 @@
 """Request, response and error models. Constraints mirror data-model.md and the OpenAPI contract."""
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
 from ai_services.errors import ErrorCode
 
@@ -37,10 +37,26 @@ class ChatRequest(BaseModel):
         return self
 
 
+# The error-code list grows over time, so it is published as an extensible enum (contract 1.1.0).
+ExtensibleErrorCode = Annotated[
+    ErrorCode,
+    WithJsonSchema(
+        {
+            "type": "string",
+            "description": (
+                "Stable machine-readable error code. The set grows over time: clients MUST treat "
+                "a code they do not recognise as a generic failure and use the HTTP status."
+            ),
+            "x-extensible-enum": [code.value for code in ErrorCode],
+        }
+    ),
+]
+
+
 class ErrorDetail(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    code: ErrorCode
+    code: ExtensibleErrorCode
     message: str
     request_id: str
     details: dict[str, object] | None = None

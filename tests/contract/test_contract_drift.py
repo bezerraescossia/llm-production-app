@@ -29,6 +29,8 @@ def project(schema: dict[str, Any], doc: dict[str, Any]) -> dict[str, Any]:
     out: dict[str, Any] = {k: s[k] for k in KEYS if k in s}
     if "enum" in s:
         out["enum"] = sorted(s["enum"])
+    if "x-extensible-enum" in s:  # an extensible enum is compared like an enum
+        out["enum"] = sorted(s["x-extensible-enum"])
     if "const" in s:
         out["enum"] = [s["const"]]
     if "required" in s:

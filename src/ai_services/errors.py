@@ -21,6 +21,10 @@ class ErrorCode(StrEnum):
     SHUTTING_DOWN = "shutting_down"
     NOT_FOUND = "not_found"
     METHOD_NOT_ALLOWED = "method_not_allowed"
+    UPSTREAM_UNAVAILABLE = "upstream_unavailable"
+    UPSTREAM_TIMEOUT = "upstream_timeout"
+    UPSTREAM_ERROR = "upstream_error"
+    INPUT_TOO_LARGE = "input_too_large"
     INTERNAL_ERROR = "internal_error"
 
 
@@ -34,6 +38,10 @@ STATUS: dict[ErrorCode, int] = {
     ErrorCode.SHUTTING_DOWN: 503,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.METHOD_NOT_ALLOWED: 405,
+    ErrorCode.UPSTREAM_UNAVAILABLE: 503,
+    ErrorCode.UPSTREAM_TIMEOUT: 504,
+    ErrorCode.UPSTREAM_ERROR: 502,
+    ErrorCode.INPUT_TOO_LARGE: 422,
     ErrorCode.INTERNAL_ERROR: 500,
 }
 

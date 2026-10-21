@@ -1,9 +1,10 @@
 """Settings loaded from the environment. Fails fast, naming the offending variable."""
 
 import re
+from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 MIN_TOKEN_LENGTH = 32
@@ -38,6 +39,14 @@ class Settings(BaseSettings):
     placeholder_token_delay_ms: int = Field(default=0, ge=0)
     log_level: str = "INFO"
     enable_docs: bool = False  # Swagger UI at /v1/docs; for development, off by default
+    gateway_config: Path | None = None  # YAML with tiers and models; built-in stub config if unset
+    anthropic_api_key: SecretStr | None = None
+    openai_api_key: SecretStr | None = None
+
+    @field_validator("gateway_config", "anthropic_api_key", "openai_api_key", mode="before")
+    @classmethod
+    def _empty_is_unset(cls, value: Any) -> Any:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("service_tokens", mode="before")
     @classmethod

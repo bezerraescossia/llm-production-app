@@ -19,7 +19,13 @@ from tests.contract.helpers import load_openapi, response_schema, schema_validat
 OPENAPI = load_openapi()
 CHAT = "/v1/chat/stream"
 # Documented statuses that are covered by dedicated tests below instead of the case table.
-COVERED_ELSEWHERE = {(CHAT, "post", 429), (CHAT, "post", 500)}
+# 502 and 504: covered by tests/integration/test_gateway_failures.py (US3); T045 removes them.
+COVERED_ELSEWHERE = {
+    (CHAT, "post", 429),
+    (CHAT, "post", 500),
+    (CHAT, "post", 502),
+    (CHAT, "post", 504),
+}
 
 
 @asynccontextmanager
@@ -38,6 +44,10 @@ async def running(**overrides: Any) -> AsyncIterator[tuple[FastAPI, httpx.AsyncC
 
 def test_contract_is_a_valid_openapi_document() -> None:
     validate(OPENAPI)
+
+
+def test_contract_version_is_1_1_0() -> None:
+    assert OPENAPI["info"]["version"] == "1.1.0"
 
 
 async def call(case: str) -> httpx.Response:
