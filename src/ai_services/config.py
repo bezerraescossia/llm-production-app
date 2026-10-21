@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     shutdown_grace_seconds: int = Field(default=20, gt=0)
     placeholder_token_delay_ms: int = Field(default=0, ge=0)
     log_level: str = "INFO"
+    enable_docs: bool = False  # Swagger UI at /v1/docs; for development, off by default
 
     @field_validator("service_tokens", mode="before")
     @classmethod

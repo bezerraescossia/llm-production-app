@@ -14,6 +14,7 @@ services:
       SHUTDOWN_GRACE_SECONDS: ${SHUTDOWN_GRACE_SECONDS:-20}
       PLACEHOLDER_TOKEN_DELAY_MS: ${PLACEHOLDER_TOKEN_DELAY_MS:-0}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENABLE_DOCS: ${ENABLE_DOCS:-false}
     depends_on:
       postgres:
         condition: service_healthy
