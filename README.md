@@ -38,7 +38,7 @@ The major version is in every route path (`/v1/...`). A breaking change needs a 
 ```bash
 uv sync --frozen
 uv run ruff check . && uv run ruff format --check .      # lint (CI job: lint)
-uv run mypy --strict src                                 # types (CI job: types)
+uv run mypy --strict src && uv run pyright                # types, mypy + Pyright/Pylance (CI job: types)
 uv run pytest tests/unit tests/contract tests/integration # tests (CI job: tests)
 scripts/contract-diff.sh origin/main                     # breaking-change gate (CI job: contract-breaking)
 docker compose up --wait && SERVICE_TOKEN=... scripts/smoke.sh   # smoke (CI job: smoke)

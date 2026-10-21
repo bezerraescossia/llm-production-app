@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 
 from ai_services.api.v1 import chat, contract, health
 from ai_services.auth import ServiceAuthMiddleware
@@ -38,6 +39,26 @@ def _install_sigterm_hook(app: FastAPI) -> Any:
     return previous
 
 
+def _install_openapi(app: FastAPI) -> None:
+    """Document the bearer scheme so Swagger UI's Authorize button works.
+
+    Authentication runs in middleware, so FastAPI does not know about it. Routes that are open
+    override the global requirement with their own `security` (see health.py and contract.py).
+    """
+
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is None:
+            schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+            schema.setdefault("components", {}).setdefault("securitySchemes", {})[
+                "serviceToken"
+            ] = {"type": "http", "scheme": "bearer"}
+            schema["security"] = [{"serviceToken": []}]
+            app.openapi_schema = schema
+        return app.openapi_schema
+
+    app.openapi = openapi  # type: ignore[method-assign]  # pyright: ignore[reportAttributeAccessIssue]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings.log_level)
@@ -55,11 +76,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title="AI-Services API",
         version=contract_version,
-        openapi_url=None,
-        docs_url=None,
+        openapi_url="/v1/openapi.json" if settings.enable_docs else None,
+        docs_url="/v1/docs" if settings.enable_docs else None,
         redoc_url=None,
         lifespan=lifespan,
     )
+    _install_openapi(app)
     app.state.settings = settings
     app.state.shutting_down = False
     app.state.active_streams = 0

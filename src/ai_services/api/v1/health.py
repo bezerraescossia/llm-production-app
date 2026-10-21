@@ -12,7 +12,7 @@ from ai_services.schemas import Liveness, Readiness
 router = APIRouter(prefix="/v1/health")
 
 
-@router.get("/live", operation_id="healthLive")
+@router.get("/live", operation_id="healthLive", openapi_extra={"security": []})
 async def live() -> Liveness:
     return Liveness(status="ok")
 
@@ -21,6 +21,7 @@ async def live() -> Liveness:
     "/ready",
     operation_id="healthReady",
     response_model=Readiness,
+    openapi_extra={"security": [{}, {"serviceToken": []}]},  # credential optional
     responses={503: {"model": Readiness, "description": "Not ready (or shutting down)."}},
 )
 async def ready(request: Request) -> JSONResponse:
