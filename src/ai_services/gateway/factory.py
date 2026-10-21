@@ -4,7 +4,11 @@ from ai_services.config import Settings
 from ai_services.gateway.config import GatewayConfig, GatewayConfigError, load_gateway_config
 from ai_services.gateway.orchestrator import Gateway
 from ai_services.gateway.providers.base import Provider
-from ai_services.gateway.providers.litellm_provider import LiteLLMProvider, is_known_model
+from ai_services.gateway.providers.litellm_provider import (
+    LiteLLMProvider,
+    is_known_model,
+    library_input_limit,
+)
 from ai_services.gateway.providers.stub import StubProvider
 from ai_services.logging import get_logger
 
@@ -61,4 +65,8 @@ def build_gateway(
         default_tier=gateway_config.default_tier,
         tiers={name: [m.name for m in t.models] for name, t in gateway_config.tiers.items()},
     )
-    return Gateway(gateway_config, providers)
+    return Gateway(
+        gateway_config,
+        providers,
+        input_limit=lambda m: m.max_input_tokens or library_input_limit(m.provider, m.model_id),
+    )

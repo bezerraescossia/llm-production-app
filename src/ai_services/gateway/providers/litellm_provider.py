@@ -64,6 +64,13 @@ def is_known_model(provider: str, model_id: str) -> bool:
     return model_id in litellm.model_cost or f"{provider}/{model_id}" in litellm.model_cost
 
 
+def library_input_limit(provider: str, model_id: str) -> int | None:
+    """The model's documented input size from the library's local model map, if known."""
+    entry = litellm.model_cost.get(model_id) or litellm.model_cost.get(f"{provider}/{model_id}")
+    value = entry.get("max_input_tokens") if entry else None
+    return int(value) if value else None
+
+
 def default_params_check(provider: str, model_id: str) -> set[str]:
     """Names of generation parameters this model does not accept (asked of the library itself).
 

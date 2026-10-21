@@ -25,7 +25,7 @@ class _Model(BaseModel):
 class ModelCandidate(_Model):
     provider: str
     model_id: str
-    max_input_tokens: int = 100_000
+    max_input_tokens: int | None = None  # None: taken from the model library, else a default
 
     @property
     def name(self) -> str:

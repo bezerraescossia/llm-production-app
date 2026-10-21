@@ -1,20 +1,35 @@
-"""The gateway: resolves a tier, calls a provider, and normalises the output into events."""
+"""The gateway: tier selection, attempts, retries, in-tier fallback and event normalisation."""
 
-from collections.abc import AsyncGenerator, AsyncIterator, Mapping
+import asyncio
+import random
+import time
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import aclosing
 from typing import Any
 
-from ai_services.gateway.config import GatewayConfig, Tier
-from ai_services.gateway.errors import UnknownTierError
-from ai_services.gateway.limits import resolve_generation
-from ai_services.gateway.providers.base import Provider, ProviderChunk
-from ai_services.gateway.types import (
-    Completion,
-    CompletionRequest,
-    FinishReason,
+from ai_services.errors import ErrorCode
+from ai_services.gateway.config import GatewayConfig, ModelCandidate, Tier
+from ai_services.gateway.cooldown import FailureCooldown, counts_toward_cooldown
+from ai_services.gateway.errors import (
+    GatewayError,
+    ProviderCategory,
+    ProviderError,
+    UnknownTierError,
+    error_for_failures,
 )
+from ai_services.gateway.limits import models_that_fit, resolve_generation
+from ai_services.gateway.providers.base import Provider, ProviderChunk
+from ai_services.gateway.types import Completion, CompletionRequest, FinishReason
 
 Event = tuple[str, dict[str, Any]]
+
+_RETRY = {ProviderCategory.TEMPORARY, ProviderCategory.RATE_LIMITED, ProviderCategory.TIMEOUT}
+_NEXT_MODEL = {
+    ProviderCategory.UNAVAILABLE,
+    ProviderCategory.AUTH,
+    ProviderCategory.CONTEXT_TOO_LARGE,
+}
+_MAX_RETRY_AFTER_SECONDS = 5.0
 
 
 class CompletionStream:
@@ -28,9 +43,11 @@ class CompletionStream:
         model: str,
         attempts: int,
         fallback_used: bool,
+        inner: AsyncGenerator[Event, None] | None = None,
     ) -> None:
         self.first = first
         self._events = events
+        self._inner = inner  # closed too, because a wrapper that never started cannot close it
         self.model = model
         self.attempts = attempts
         self.fallback_used = fallback_used
@@ -45,6 +62,8 @@ class CompletionStream:
 
     async def aclose(self) -> None:
         await self._events.aclose()
+        if self._inner is not None:
+            await self._inner.aclose()
 
 
 async def _events(chunks: AsyncGenerator[ProviderChunk, None]) -> AsyncGenerator[Event, None]:
@@ -65,10 +84,27 @@ async def _events(chunks: AsyncGenerator[ProviderChunk, None]) -> AsyncGenerator
     yield "done", {"finish_reason": finish}
 
 
+async def _only(event: Event) -> AsyncGenerator[Event, None]:
+    yield event
+
+
 class Gateway:
-    def __init__(self, config: GatewayConfig, providers: Mapping[str, Provider]) -> None:
+    def __init__(
+        self,
+        config: GatewayConfig,
+        providers: Mapping[str, Provider],
+        *,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        uniform: Callable[[float, float], float] = random.uniform,
+        clock: Callable[[], float] = time.monotonic,
+        input_limit: Callable[[ModelCandidate], int | None] | None = None,
+    ) -> None:
         self._config = config
         self._providers = providers
+        self._sleep = sleep
+        self._uniform = uniform
+        self._cooldown = FailureCooldown(config.cooldown, clock=clock)
+        self._input_limit = input_limit or (lambda m: m.max_input_tokens)
 
     @property
     def config(self) -> GatewayConfig:
@@ -84,17 +120,89 @@ class Gateway:
         except KeyError:
             raise UnknownTierError(name) from None
 
+    def _order(self, models: list[ModelCandidate]) -> list[ModelCandidate]:
+        """Configured order, skipping models that are cooling down; if all are, the soonest."""
+        available = [m for m in models if not self._cooldown.is_cooling(m.name)]
+        if available:
+            return available
+        soonest = self._cooldown.soonest([m.name for m in models])
+        return [m for m in models if m.name == soonest][:1]
+
+    def _backoff(self, attempt: int, err: ProviderError) -> float:
+        if err.retry_after_seconds is not None:
+            return min(err.retry_after_seconds, _MAX_RETRY_AFTER_SECONDS)
+        policy = self._config.retry
+        ceiling = min(policy.backoff_max_seconds, policy.backoff_base_seconds * 2 ** (attempt - 1))
+        return self._uniform(0.0, ceiling)
+
     async def open(self, request: CompletionRequest) -> CompletionStream:
         tier = self._tier(request.tier)
-        candidate = tier.models[0]
-        provider = self._providers[candidate.provider]
         settings = resolve_generation(tier.generation, request.settings)
-        chunks = provider.stream(candidate.model_id, request.messages, settings)
-        events = _events(chunks)
-        first = await anext(events)
-        return CompletionStream(
-            first, events, model=candidate.name, attempts=1, fallback_used=False
-        )
+        fitting = models_that_fit(tier.models, request.messages, self._input_limit)
+        if not fitting:
+            raise GatewayError(ErrorCode.INPUT_TOO_LARGE)
+
+        attempts = 0
+        failures: list[ProviderCategory] = []
+        for candidate in self._order(fitting):
+            provider = self._providers[candidate.provider]
+            for attempt in range(1, self._config.retry.max_attempts_per_model + 1):
+                attempts += 1
+                events = _events(provider.stream(candidate.model_id, request.messages, settings))
+                try:
+                    first = await anext(events)
+                except ProviderError as err:
+                    failures.append(err.category)
+                    if counts_toward_cooldown(err.category):
+                        self._cooldown.record_failure(candidate.name)
+                    if err.category is ProviderCategory.CONTENT_BLOCKED:
+                        # A safety block is never retried and never routed around.
+                        blocked: Event = (
+                            "usage",
+                            {"input_tokens": None, "output_tokens": None, "cost_usd": None},
+                        )
+                        rest = _only(("done", {"finish_reason": "blocked"}))
+                        return CompletionStream(
+                            blocked,
+                            rest,
+                            model=candidate.name,
+                            attempts=attempts,
+                            fallback_used=False,
+                        )
+                    if err.category is ProviderCategory.INVALID_REQUEST:
+                        raise GatewayError(ErrorCode.UPSTREAM_ERROR) from None
+                    if err.category in _NEXT_MODEL or err.category not in _RETRY:
+                        break
+                    if self._cooldown.is_cooling(candidate.name):
+                        break
+                    if attempt == self._config.retry.max_attempts_per_model:
+                        break
+                    await self._sleep(self._backoff(attempt, err))
+                    continue
+                self._cooldown.record_success(candidate.name)
+                return CompletionStream(
+                    first,
+                    self._guard(events, candidate.name),
+                    model=candidate.name,
+                    attempts=attempts,
+                    fallback_used=candidate.name != tier.models[0].name,
+                    inner=events,
+                )
+        raise error_for_failures(failures)
+
+    async def _guard(
+        self, events: AsyncGenerator[Event, None], model: str
+    ) -> AsyncGenerator[Event, None]:
+        """After the first piece nothing is retried or replaced: a failure ends the stream."""
+        async with aclosing(events):
+            try:
+                async for event in events:
+                    yield event
+            except ProviderError as err:
+                if counts_toward_cooldown(err.category):
+                    self._cooldown.record_failure(model)
+                final = error_for_failures([err.category])
+                yield "error", {"code": final.code.value, "message": final.message}
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[Event]:
         completion = await self.open(request)
@@ -117,6 +225,8 @@ class Gateway:
                     tokens = (payload["input_tokens"], payload["output_tokens"])
                 elif kind == "done":
                     finish = payload["finish_reason"]
+                elif kind == "error":
+                    raise GatewayError(ErrorCode(payload["code"]))
         finally:
             await completion.aclose()
         return Completion(

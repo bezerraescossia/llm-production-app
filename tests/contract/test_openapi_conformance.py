@@ -12,6 +12,7 @@ from openapi_spec_validator import validate
 
 from ai_services.config import Settings
 from ai_services.errors import ErrorCode, ServiceError
+from ai_services.gateway.config import GatewayConfig, ModelCandidate, RetryPolicy
 from ai_services.main import create_app
 from tests.conftest import TENANT_HEADERS, TOKEN_A, VALID_BODY, auth
 from tests.contract.helpers import load_openapi, response_schema, schema_validator
@@ -19,27 +20,37 @@ from tests.contract.helpers import load_openapi, response_schema, schema_validat
 OPENAPI = load_openapi()
 CHAT = "/v1/chat/stream"
 # Documented statuses that are covered by dedicated tests below instead of the case table.
-# 502 and 504: covered by tests/integration/test_gateway_failures.py (US3); T045 removes them.
-COVERED_ELSEWHERE = {
-    (CHAT, "post", 429),
-    (CHAT, "post", 500),
-    (CHAT, "post", 502),
-    (CHAT, "post", 504),
-}
+COVERED_ELSEWHERE = {(CHAT, "post", 429), (CHAT, "post", 500)}
 
 
 @asynccontextmanager
-async def running(**overrides: Any) -> AsyncIterator[tuple[FastAPI, httpx.AsyncClient]]:
+async def running(
+    gateway_config: GatewayConfig | None = None, **overrides: Any
+) -> AsyncIterator[tuple[FastAPI, httpx.AsyncClient]]:
     settings = Settings(
         _env_file=None,  # type: ignore[call-arg]
         service_tokens=[TOKEN_A],
         **overrides,
     )
-    app = create_app(settings)
+    app = create_app(settings, gateway_config)
     async with LifespanManager(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
             yield app, client
+
+
+def failing_gateway(models: list[str], max_input_tokens: int | None = None) -> GatewayConfig:
+    cfg = GatewayConfig.from_models(
+        {"small": ["stub/default"], "medium": models, "large": ["stub/default"]}
+    )
+    cfg.retry = RetryPolicy(
+        max_attempts_per_model=2, backoff_base_seconds=0.001, backoff_max_seconds=0.002
+    )
+    if max_input_tokens is not None:
+        cfg.tiers["medium"].models = [
+            ModelCandidate(provider="stub", model_id="default", max_input_tokens=max_input_tokens)
+        ]
+    return cfg
 
 
 def test_contract_is_a_valid_openapi_document() -> None:
@@ -73,6 +84,16 @@ async def call(case: str) -> httpx.Response:
             case "chat_503":
                 app.state.begin_shutdown()
                 return await c.post(CHAT, json=VALID_BODY, headers=auth())
+            case "chat_502":
+                return await post_with(failing_gateway(["stub/fail-auth"]))
+            case "chat_504":
+                return await post_with(failing_gateway(["stub/fail-timeout"]))
+            case "chat_503_upstream":
+                return await post_with(failing_gateway(["stub/fail-temporary"]))
+            case "chat_422_input_too_large":
+                return await post_with(
+                    failing_gateway(["stub/default"], max_input_tokens=5), long=True
+                )
             case "live_200":
                 return await c.get("/v1/health/live")
             case "ready_503":
@@ -80,6 +101,12 @@ async def call(case: str) -> httpx.Response:
             case "contract_200":
                 return await c.get("/v1/contract")
     raise AssertionError(case)
+
+
+async def post_with(cfg: GatewayConfig, long: bool = False) -> httpx.Response:
+    body = {"messages": [{"role": "user", "content": "x" * (300 if long else 5)}]}
+    async with running(cfg) as (_app, c):
+        return await c.post(CHAT, json=body, headers=auth())
 
 
 async def call_ready_200() -> httpx.Response:
@@ -95,6 +122,10 @@ CASES = {
     "chat_422_validation": (CHAT, "post", 422),
     "chat_422_history": (CHAT, "post", 422),
     "chat_503": (CHAT, "post", 503),
+    "chat_503_upstream": (CHAT, "post", 503),
+    "chat_502": (CHAT, "post", 502),
+    "chat_504": (CHAT, "post", 504),
+    "chat_422_input_too_large": (CHAT, "post", 422),
     "live_200": ("/v1/health/live", "get", 200),
     "ready_503": ("/v1/health/ready", "get", 503),
     "contract_200": ("/v1/contract", "get", 200),
