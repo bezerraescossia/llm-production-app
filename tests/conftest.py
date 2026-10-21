@@ -1,5 +1,10 @@
 """Shared fixtures: settings, app, in-process client and a live Uvicorn server."""
 
+import os
+
+# Keep LiteLLM from loading the developer's .env into the test process when a test imports it.
+os.environ.setdefault("LITELLM_MODE", "PRODUCTION")
+
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator

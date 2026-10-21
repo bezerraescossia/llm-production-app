@@ -8,8 +8,9 @@ from sse_starlette.sse import AppStatus
 
 from ai_services.errors import ErrorCode, ServiceError
 from ai_services.events import EventSequencer, Frame
+from ai_services.gateway import CompletionStream
+from ai_services.gateway.types import CompletionRequest
 from ai_services.logging import get_logger
-from ai_services.placeholder import placeholder_events
 from ai_services.schemas import ChatRequest, Error
 
 log = get_logger(__name__)
@@ -23,17 +24,16 @@ def _sse(frame: Frame) -> ServerSentEvent:
     return ServerSentEvent(data=frame.data, event=frame.event, id=str(frame.id))
 
 
-async def _stream(request: Request, message_count: int) -> AsyncIterator[ServerSentEvent]:
+async def _stream(
+    request: Request, completion: CompletionStream, message_count: int
+) -> AsyncIterator[ServerSentEvent]:
     state = request.app.state
     sequencer = EventSequencer()
     state.active_streams += 1
     log.info("chat_stream_started", messages=message_count)
     try:
         try:
-            async for event, payload in placeholder_events(
-                state.settings.placeholder_token_delay_ms,
-                getattr(state, "fail_after_events", None),
-            ):
+            async for event, payload in completion:
                 yield _sse(sequencer.next(event, payload))
         except Exception as exc:
             log.error("chat_stream_failed", error_type=type(exc).__name__)
@@ -46,6 +46,7 @@ async def _stream(request: Request, message_count: int) -> AsyncIterator[ServerS
         else:
             log.info("chat_stream_completed")
     finally:
+        await completion.aclose()
         state.active_streams -= 1
 
 
@@ -94,10 +95,14 @@ def _header(name: str, required: bool) -> dict[str, object]:
     },
 )
 async def chat_stream(request: Request, body: ChatRequest) -> EventSourceResponse:
-    limit = request.app.state.settings.max_messages
+    state = request.app.state
+    limit = state.settings.max_messages
     if len(body.messages) > limit:
         raise ServiceError(
             ErrorCode.HISTORY_TOO_LONG,
             f"The message history exceeds {limit} messages.",
         )
-    return EventSourceResponse(_stream(request, len(body.messages)))
+    gateway = state.gateway
+    # Wait for the first output so a failure before it is a normal HTTP error (FR-024).
+    completion = await gateway.open(CompletionRequest(gateway.default_tier, body.messages))
+    return EventSourceResponse(_stream(request, completion, len(body.messages)))

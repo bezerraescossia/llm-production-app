@@ -13,6 +13,9 @@ from ai_services.auth import ServiceAuthMiddleware
 from ai_services.config import Settings, load_settings
 from ai_services.contract_version import load_contract_version
 from ai_services.errors import install_error_handlers
+from ai_services.gateway import Gateway
+from ai_services.gateway.config import GatewayConfig
+from ai_services.gateway.providers.stub import StubProvider
 from ai_services.logging import configure_logging, get_logger
 from ai_services.middleware import (
     BodyLimitMiddleware,
@@ -59,7 +62,9 @@ def _install_openapi(app: FastAPI) -> None:
     app.openapi = openapi  # type: ignore[method-assign]  # pyright: ignore[reportAttributeAccessIssue]
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, gateway_config: GatewayConfig | None = None
+) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings.log_level)
     contract_version = load_contract_version()
@@ -91,6 +96,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.shutting_down = True
 
     app.state.begin_shutdown = begin_shutdown
+
+    # The stub keeps spec 001's test hooks: PLACEHOLDER_TOKEN_DELAY_MS, app.state.fail_after_events.
+    stub = StubProvider(
+        delay_ms=settings.placeholder_token_delay_ms,
+        fail_after=lambda: getattr(app.state, "fail_after_events", None),
+    )
+    app.state.gateway = Gateway(gateway_config or GatewayConfig.default(), {"stub": stub})
 
     install_error_handlers(app)
     app.include_router(chat.router)
