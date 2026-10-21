@@ -18,6 +18,7 @@ from ai_services.gateway.errors import (
     error_for_failures,
 )
 from ai_services.gateway.limits import models_that_fit, resolve_generation
+from ai_services.gateway.logging import log_attempt_failed, log_completion_finished
 from ai_services.gateway.providers.base import Provider, ProviderChunk
 from ai_services.gateway.types import Completion, CompletionRequest, FinishReason
 
@@ -44,10 +45,19 @@ class CompletionStream:
         model: str,
         attempts: int,
         fallback_used: bool,
+        tier: str,
+        started: float,
+        first_output_ms: float,
         inner: AsyncGenerator[Event, None] | None = None,
     ) -> None:
         self.first = first
         self._events = events
+        self._tier = tier
+        self._started = started
+        self._first_output_ms = first_output_ms
+        self._tokens: tuple[int | None, int | None] = (None, None)
+        self._finish_reason: str | None = None
+        self._summarised = False
         self._inner = inner  # closed too, because a wrapper that never started cannot close it
         self.model = model
         self.attempts = attempts
@@ -57,14 +67,47 @@ class CompletionStream:
         return self._iterate()
 
     async def _iterate(self) -> AsyncIterator[Event]:
-        yield self.first
-        async for event in self._events:
-            yield event
+        try:
+            self._observe(self.first)
+            yield self.first
+            async for event in self._events:
+                self._observe(event)
+                yield event
+        finally:
+            self._summarise()
+
+    def _observe(self, event: Event) -> None:
+        kind, payload = event
+        if kind == "usage":
+            self._tokens = (payload["input_tokens"], payload["output_tokens"])
+        elif kind == "done":
+            self._finish_reason = payload["finish_reason"]
+        elif kind == "error":
+            self._finish_reason = "error"
+
+    def _summarise(self) -> None:
+        """One content-free summary per completion; a stream closed early counts as cancelled."""
+        if self._summarised:
+            return
+        self._summarised = True
+        total_ms = (asyncio.get_running_loop().time() - self._started) * 1000
+        log_completion_finished(
+            tier=self._tier,
+            model=self.model,
+            attempts=self.attempts,
+            fallback_used=self.fallback_used,
+            first_output_ms=self._first_output_ms,
+            total_ms=total_ms,
+            finish_reason=self._finish_reason or "cancelled",
+            input_tokens=self._tokens[0],
+            output_tokens=self._tokens[1],
+        )
 
     async def aclose(self) -> None:
         await self._events.aclose()
         if self._inner is not None:
             await self._inner.aclose()
+        self._summarise()
 
 
 async def _events(chunks: AsyncGenerator[ProviderChunk, None]) -> AsyncGenerator[Event, None]:
@@ -171,11 +214,19 @@ class Gateway:
                 except (ProviderError, TimeoutError) as raised:
                     await events.aclose()
                     if isinstance(raised, TimeoutError):
+                        log_attempt_failed(
+                            model=candidate.name,
+                            category=ProviderCategory.TIMEOUT.value,
+                            attempt=attempt,
+                        )
                         if loop.time() >= wait_deadline - _DEADLINE_SLACK_SECONDS:
                             raise GatewayError(ErrorCode.UPSTREAM_TIMEOUT) from None
                         err = ProviderError(ProviderCategory.TIMEOUT)
                     else:
                         err = raised
+                        log_attempt_failed(
+                            model=candidate.name, category=err.category.value, attempt=attempt
+                        )
                     failures.append(err.category)
                     if counts_toward_cooldown(err.category):
                         self._cooldown.record_failure(candidate.name)
@@ -191,7 +242,10 @@ class Gateway:
                             rest,
                             model=candidate.name,
                             attempts=attempts,
-                            fallback_used=False,
+                            fallback_used=candidate.name != tier.models[0].name,
+                            tier=request.tier,
+                            started=started,
+                            first_output_ms=(loop.time() - started) * 1000,
                         )
                     if err.category is ProviderCategory.INVALID_REQUEST:
                         raise GatewayError(ErrorCode.UPSTREAM_ERROR) from None
@@ -213,6 +267,9 @@ class Gateway:
                     model=candidate.name,
                     attempts=attempts,
                     fallback_used=candidate.name != tier.models[0].name,
+                    tier=request.tier,
+                    started=started,
+                    first_output_ms=(loop.time() - started) * 1000,
                     inner=events,
                 )
         raise error_for_failures(failures)
@@ -239,6 +296,7 @@ class Gateway:
                         if isinstance(raised, ProviderError)
                         else ProviderCategory.TIMEOUT
                     )
+                    log_attempt_failed(model=model, category=category.value, midstream=True)
                     if counts_toward_cooldown(category):
                         self._cooldown.record_failure(model)
                     final = error_for_failures([category])

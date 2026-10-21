@@ -168,12 +168,12 @@ description: "Task list for spec 002 LLM Gateway"
 
 ### Tests for User Story 5 (write first, must fail)
 
-- [ ] T050 [P] [US5] Create `tests/integration/test_gateway_logs.py`: after a completion that needed one fallback, the logs for its request id contain exactly one `completion_finished` with `tier`, `model`, `attempts`, `fallback_used`, `first_output_ms`, `total_ms`, `finish_reason`, `input_tokens`, `output_tokens`, and one `completion_attempt_failed` per failed attempt with `model` and `category`; all carry `request_id`, `tenant_id` and `user_id`; completions made through the `complete()` helper are logged the same way.
-- [ ] T051 [P] [US5] Create `tests/integration/test_no_content_in_gateway_logs.py` (SC-007): across success, fallback, total failure, mid-stream failure, blocked, cancellation and an invalid configuration at startup, capture all log output and assert that no sentinel prompt text, no sentinel answer text (a stub answer variant containing a unique marker) and no credential value appears.
+- [X] T050 [P] [US5] Create `tests/integration/test_gateway_logs.py`: after a completion that needed one fallback, the logs for its request id contain exactly one `completion_finished` with `tier`, `model`, `attempts`, `fallback_used`, `first_output_ms`, `total_ms`, `finish_reason`, `input_tokens`, `output_tokens`, and one `completion_attempt_failed` per failed attempt with `model` and `category`; all carry `request_id`, `tenant_id` and `user_id`; completions made through the `complete()` helper are logged the same way.
+- [X] T051 [P] [US5] Create `tests/integration/test_no_content_in_gateway_logs.py` (SC-007): across success, fallback, total failure, mid-stream failure, blocked, cancellation and an invalid configuration at startup, capture all log output and assert that no sentinel prompt text, no sentinel answer text (a stub answer variant containing a unique marker) and no credential value appears.
 
 ### Implementation for User Story 5
 
-- [ ] T052 [US5] Create `src/ai_services/gateway/logging.py` with the two log helpers (never accepting message or answer text as arguments) and call them from `src/ai_services/gateway/orchestrator.py` at the end of every completion path and for every failed attempt (makes T050 and T051 pass).
+- [X] T052 [US5] Create `src/ai_services/gateway/logging.py` with the two log helpers (never accepting message or answer text as arguments) and call them from `src/ai_services/gateway/orchestrator.py` at the end of every completion path and for every failed attempt (makes T050 and T051 pass).
 
 **Checkpoint**: operators can diagnose any completion from its request id, and logs stay content-free.
 
