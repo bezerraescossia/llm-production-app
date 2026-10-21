@@ -1,0 +1,92 @@
+"""POST /v1/chat/stream: stream an answer as typed server-sent events."""
+
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Request
+from sse_starlette import EventSourceResponse, ServerSentEvent
+from sse_starlette.sse import AppStatus
+
+from ai_services.errors import ErrorCode, ServiceError
+from ai_services.events import EventSequencer, Frame
+from ai_services.logging import get_logger
+from ai_services.placeholder import placeholder_events
+from ai_services.schemas import ChatRequest, Error
+
+log = get_logger(__name__)
+router = APIRouter(prefix="/v1")
+
+# In-flight streams must drain within the grace period instead of being cut at SIGTERM.
+AppStatus.disable_automatic_graceful_drain()  # type: ignore[no-untyped-call]
+
+
+def _sse(frame: Frame) -> ServerSentEvent:
+    return ServerSentEvent(data=frame.data, event=frame.event, id=str(frame.id))
+
+
+async def _stream(request: Request, message_count: int) -> AsyncIterator[ServerSentEvent]:
+    state = request.app.state
+    sequencer = EventSequencer()
+    state.active_streams += 1
+    log.info("chat_stream_started", messages=message_count)
+    try:
+        try:
+            async for event, payload in placeholder_events(
+                state.settings.placeholder_token_delay_ms,
+                getattr(state, "fail_after_events", None),
+            ):
+                yield _sse(sequencer.next(event, payload))
+        except Exception as exc:
+            log.error("chat_stream_failed", error_type=type(exc).__name__)
+            yield _sse(
+                sequencer.next(
+                    "error",
+                    {"code": ErrorCode.INTERNAL_ERROR.value, "message": "The stream failed."},
+                )
+            )
+        else:
+            log.info("chat_stream_completed")
+    finally:
+        state.active_streams -= 1
+
+
+_ERROR_RESPONSES: dict[int | str, dict[str, object]] = {
+    200: {
+        "description": "Stream of typed events ending in exactly one done or error event.",
+        "content": {"text/event-stream": {"schema": {"type": "string"}}},
+    },
+    400: {"model": Error, "description": "Tenant or user identity missing or invalid."},
+    401: {"model": Error, "description": "Missing or invalid service credential."},
+    413: {"model": Error, "description": "Body exceeds the size limit."},
+    422: {"model": Error, "description": "Body fails validation or history exceeds the limit."},
+    429: {"model": Error, "description": "Reserved: rate limit exceeded."},
+    500: {"model": Error, "description": "Unexpected failure before streaming started."},
+    503: {"model": Error, "description": "Service is draining and refuses new requests."},
+}
+
+
+def _header(name: str, required: bool) -> dict[str, object]:
+    return {"name": name, "in": "header", "required": required, "schema": {"type": "string"}}
+
+
+@router.post(
+    "/chat/stream",
+    operation_id="chatStream",
+    response_model=None,
+    response_class=EventSourceResponse,
+    responses=_ERROR_RESPONSES,
+    openapi_extra={
+        "parameters": [
+            _header("X-Tenant-Id", True),
+            _header("X-User-Id", True),
+            _header("X-Request-Id", False),
+        ]
+    },
+)
+async def chat_stream(request: Request, body: ChatRequest) -> EventSourceResponse:
+    limit = request.app.state.settings.max_messages
+    if len(body.messages) > limit:
+        raise ServiceError(
+            ErrorCode.HISTORY_TOO_LONG,
+            f"The message history exceeds {limit} messages.",
+        )
+    return EventSourceResponse(_stream(request, len(body.messages)))

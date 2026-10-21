@@ -1,0 +1,51 @@
+[project]
+name = "ai-services"
+version = "0.1.0"
+description = "AI-services layer: authenticated SSE service for the LLM production app"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.156.8",
+    "uvicorn[standard]==0.54.0",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "sse-starlette==3.5.0",
+    "structlog==26.1.0",
+    "pyyaml==6.0.3",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "httpx==0.28.1",
+    "asgi-lifespan==2.1.0",
+    "jsonschema==4.26.0",
+    "openapi-spec-validator==0.9.0",
+    "ruff==0.17.1",
+    "mypy==2.4.0",
+    "types-PyYAML==6.0.12.20260906",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_services"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+plugins = ["pydantic.mypy"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
