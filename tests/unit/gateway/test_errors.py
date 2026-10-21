@@ -1,4 +1,6 @@
 import pytest
+
+from ai_services.errors import ErrorCode, ServiceError
 from ai_services.gateway.errors import (
     GatewayError,
     GenerationSettingError,
@@ -7,8 +9,6 @@ from ai_services.gateway.errors import (
     UnknownTierError,
     error_for_failures,
 )
-
-from ai_services.errors import ErrorCode, ServiceError
 
 C = ProviderCategory
 

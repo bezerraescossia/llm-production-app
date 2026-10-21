@@ -1,9 +1,9 @@
 import pytest
-from ai_services.gateway.limits import resolve_generation
 
 from ai_services.gateway import Gateway
 from ai_services.gateway.config import GatewayConfig, GenerationLimits, TemperatureLimit, TokenLimit
 from ai_services.gateway.errors import GenerationSettingError
+from ai_services.gateway.limits import resolve_generation
 from ai_services.gateway.providers.litellm_provider import LiteLLMProvider
 from ai_services.gateway.providers.stub import StubProvider
 from ai_services.gateway.types import CompletionRequest, GenerationSettings

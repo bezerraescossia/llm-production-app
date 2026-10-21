@@ -186,7 +186,7 @@ description: "Task list for spec 002 LLM Gateway"
 - [X] T055 [P] Create `tests/integration/test_gateway_overhead.py` (SC-006): at 20 concurrent requests the 95th-percentile time to first output through the gateway with `stub/default` is at most 50 ms above iterating the stub provider directly.
 - [X] T056 Run `quickstart.md` end to end (steps 1 to 12), fix any discrepancy between the guide and behavior, and add a "Verified on" section with dates and results.
 - [X] T057 Final constitution check: re-read the plan's Constitution Check table, confirm each Pass row holds in the finished code and each Deferred row (II owner spec 004, VI owner spec 003) still names its owner on the roadmap; record any new deviation in the plan's Complexity Tracking.
-- [ ] T058 (BLOCKED until contract 1.1.0 is merged to the default branch) Delete `contracts/oasdiff-ignore.txt` and the script's reference to it, because from 1.1.0 on the extensible error-code enum makes the exception unnecessary; confirm `scripts/contract-diff.sh` passes against the new baseline without it.
+- [X] T058 (BLOCKED until contract 1.1.0 is merged to the default branch) Delete `contracts/oasdiff-ignore.txt` and the script's reference to it, because from 1.1.0 on the extensible error-code enum makes the exception unnecessary; confirm `scripts/contract-diff.sh` passes against the new baseline without it.
 
 ---
 
