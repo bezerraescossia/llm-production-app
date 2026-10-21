@@ -30,6 +30,7 @@ _NEXT_MODEL = {
     ProviderCategory.CONTEXT_TOO_LARGE,
 }
 _MAX_RETRY_AFTER_SECONDS = 5.0
+_DEADLINE_SLACK_SECONDS = 0.002
 
 
 class CompletionStream:
@@ -142,16 +143,39 @@ class Gateway:
         if not fitting:
             raise GatewayError(ErrorCode.INPUT_TOO_LARGE)
 
+        timeouts = self._config.timeouts
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        total_deadline = started + timeouts.total_seconds
+        # The overall wait for the first output (across attempts, retries, backoff and fallbacks).
+        wait_deadline = min(started + timeouts.pre_output_seconds, total_deadline)
+
         attempts = 0
         failures: list[ProviderCategory] = []
         for candidate in self._order(fitting):
             provider = self._providers[candidate.provider]
             for attempt in range(1, self._config.retry.max_attempts_per_model + 1):
+                remaining = wait_deadline - loop.time()
+                if remaining <= 0:
+                    raise GatewayError(ErrorCode.UPSTREAM_TIMEOUT)
+                limit = min(timeouts.first_output_seconds, remaining)
                 attempts += 1
-                events = _events(provider.stream(candidate.model_id, request.messages, settings))
+                events = _events(
+                    provider.stream(
+                        candidate.model_id, request.messages, settings, timeout_seconds=limit
+                    )
+                )
                 try:
-                    first = await anext(events)
-                except ProviderError as err:
+                    async with asyncio.timeout(limit):
+                        first = await anext(events)
+                except (ProviderError, TimeoutError) as raised:
+                    await events.aclose()
+                    if isinstance(raised, TimeoutError):
+                        if loop.time() >= wait_deadline - _DEADLINE_SLACK_SECONDS:
+                            raise GatewayError(ErrorCode.UPSTREAM_TIMEOUT) from None
+                        err = ProviderError(ProviderCategory.TIMEOUT)
+                    else:
+                        err = raised
                     failures.append(err.category)
                     if counts_toward_cooldown(err.category):
                         self._cooldown.record_failure(candidate.name)
@@ -177,12 +201,15 @@ class Gateway:
                         break
                     if attempt == self._config.retry.max_attempts_per_model:
                         break
-                    await self._sleep(self._backoff(attempt, err))
+                    pause = min(self._backoff(attempt, err), wait_deadline - loop.time())
+                    if pause <= 0:
+                        raise GatewayError(ErrorCode.UPSTREAM_TIMEOUT) from None
+                    await self._sleep(pause)
                     continue
                 self._cooldown.record_success(candidate.name)
                 return CompletionStream(
                     first,
-                    self._guard(events, candidate.name),
+                    self._guard(events, candidate.name, total_deadline),
                     model=candidate.name,
                     attempts=attempts,
                     fallback_used=candidate.name != tier.models[0].name,
@@ -191,18 +218,33 @@ class Gateway:
         raise error_for_failures(failures)
 
     async def _guard(
-        self, events: AsyncGenerator[Event, None], model: str
+        self, events: AsyncGenerator[Event, None], model: str, total_deadline: float
     ) -> AsyncGenerator[Event, None]:
-        """After the first piece nothing is retried or replaced: a failure ends the stream."""
+        """After the first piece nothing is retried or replaced: a failure or a limit ends it."""
+        loop = asyncio.get_running_loop()
+        idle = self._config.timeouts.idle_seconds
         async with aclosing(events):
-            try:
-                async for event in events:
-                    yield event
-            except ProviderError as err:
-                if counts_toward_cooldown(err.category):
-                    self._cooldown.record_failure(model)
-                final = error_for_failures([err.category])
-                yield "error", {"code": final.code.value, "message": final.message}
+            while True:
+                limit = min(idle, total_deadline - loop.time())
+                try:
+                    if limit <= 0:
+                        raise TimeoutError
+                    async with asyncio.timeout(limit):
+                        event = await anext(events)
+                except StopAsyncIteration:
+                    return
+                except (ProviderError, TimeoutError) as raised:
+                    category = (
+                        raised.category
+                        if isinstance(raised, ProviderError)
+                        else ProviderCategory.TIMEOUT
+                    )
+                    if counts_toward_cooldown(category):
+                        self._cooldown.record_failure(model)
+                    final = error_for_failures([category])
+                    yield "error", {"code": final.code.value, "message": final.message}
+                    return
+                yield event
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[Event]:
         completion = await self.open(request)

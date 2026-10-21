@@ -102,6 +102,7 @@ def create_app(
         delay_ms=settings.placeholder_token_delay_ms,
         fail_after=lambda: getattr(app.state, "fail_after_events", None),
     )
+    app.state.stub = stub
     app.state.gateway = build_gateway(settings, stub, gateway_config)
 
     install_error_handlers(app)

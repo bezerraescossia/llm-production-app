@@ -1,14 +1,16 @@
 """POST /v1/chat/stream: stream an answer as typed server-sent events."""
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from sse_starlette import EventSourceResponse, ServerSentEvent
 from sse_starlette.sse import AppStatus
 
 from ai_services.errors import ErrorCode, ServiceError
 from ai_services.events import EventSequencer, Frame
-from ai_services.gateway import CompletionStream
+from ai_services.gateway import CompletionStream, Gateway
 from ai_services.gateway.types import CompletionRequest
 from ai_services.logging import get_logger
 from ai_services.schemas import ChatRequest, Error
@@ -18,6 +20,38 @@ router = APIRouter(prefix="/v1")
 
 # In-flight streams must drain within the grace period instead of being cut at SIGTERM.
 AppStatus.disable_automatic_graceful_drain()  # type: ignore[no-untyped-call]
+
+
+_DISCONNECT_POLL_SECONDS = 0.05
+
+
+async def _wait_for_disconnect(request: Request) -> None:
+    while not await request.is_disconnected():  # noqa: ASYNC110 - Starlette offers only polling
+        await asyncio.sleep(_DISCONNECT_POLL_SECONDS)
+
+
+async def _open_unless_disconnected(
+    request: Request, gateway: Gateway, completion_request: CompletionRequest
+) -> CompletionStream | None:
+    """Open the completion, but give up (and stop the provider call) if the client goes away.
+
+    Returns None if the client disconnected while we were waiting for the first output.
+    """
+    opening = asyncio.ensure_future(gateway.open(completion_request))
+    watcher = asyncio.ensure_future(_wait_for_disconnect(request))
+    try:
+        await asyncio.wait({opening, watcher}, return_when=asyncio.FIRST_COMPLETED)
+        if opening.done():
+            return opening.result()
+        opening.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await opening
+        return None
+    except BaseException:
+        opening.cancel()
+        raise
+    finally:
+        watcher.cancel()
 
 
 def _sse(frame: Frame) -> ServerSentEvent:
@@ -94,7 +128,7 @@ def _header(name: str, required: bool) -> dict[str, object]:
         ]
     },
 )
-async def chat_stream(request: Request, body: ChatRequest) -> EventSourceResponse:
+async def chat_stream(request: Request, body: ChatRequest) -> Response:
     state = request.app.state
     limit = state.settings.max_messages
     if len(body.messages) > limit:
@@ -104,5 +138,9 @@ async def chat_stream(request: Request, body: ChatRequest) -> EventSourceRespons
         )
     gateway = state.gateway
     # Wait for the first output so a failure before it is a normal HTTP error (FR-024).
-    completion = await gateway.open(CompletionRequest(gateway.default_tier, body.messages))
+    completion = await _open_unless_disconnected(
+        request, gateway, CompletionRequest(gateway.default_tier, body.messages)
+    )
+    if completion is None:
+        return Response(status_code=499)  # the client is gone; nothing is left to answer
     return EventSourceResponse(_stream(request, completion, len(body.messages)))
