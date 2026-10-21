@@ -30,6 +30,7 @@ jobs:
           save-cache: false
       - run: uv sync --frozen
       - run: uv run mypy --strict src
+      - run: uv run pyright
 
   tests:
     runs-on: ubuntu-24.04

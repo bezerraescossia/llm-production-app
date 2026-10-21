@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -8,7 +9,7 @@ from ai_services.config import Settings, load_settings
 GOOD = "g" * 32
 
 
-def make(**env: str) -> Settings:
+def make(**env: Any) -> Settings:
     return Settings(_env_file=None, **env)  # type: ignore[call-arg]
 
 

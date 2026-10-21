@@ -14,7 +14,7 @@ async def test_client_disconnect_stops_the_stream_and_releases_resources() -> No
         placeholder_token_delay_ms=200,
     )
     app = create_app(settings)
-    async with run_server(app) as (base, _server):  # type: tuple[str, uvicorn.Server]
+    async with run_server(app) as (base, _server):
         async with httpx.AsyncClient(base_url=base, timeout=5) as c:
             async with c.stream("POST", "/v1/chat/stream", json=VALID_BODY, headers=auth()) as r:
                 async for line in r.aiter_lines():

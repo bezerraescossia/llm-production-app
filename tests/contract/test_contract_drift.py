@@ -106,6 +106,7 @@ def test_request_body_and_parameters_match(app: FastAPI) -> None:
         got_body = generated_ops[key].get("requestBody")
         assert bool(got_body) == bool(want_body), key
         if want_body:
+            assert got_body is not None
             assert bool(got_body["required"]) == bool(want_body["required"])
             assert project(got_body["content"]["application/json"]["schema"], generated) == project(
                 want_body["content"]["application/json"]["schema"], contract

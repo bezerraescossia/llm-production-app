@@ -83,7 +83,7 @@ class Settings(BaseSettings):
 def load_settings() -> Settings:
     """Load settings from the environment, or exit with a message naming each bad variable."""
     try:
-        return Settings()
+        return Settings()  # pyright: ignore[reportCallIssue]  # values come from the environment
     except ValidationError as exc:
         problems = "; ".join(
             f"{'.'.join(str(p).upper() for p in err['loc'])}: {err['msg']}" for err in exc.errors()
