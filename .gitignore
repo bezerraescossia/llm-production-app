@@ -13,3 +13,5 @@ build/
 .coverage.*
 htmlcov/
 coverage.xml
+
+config/gateway.local.yaml

@@ -1,14 +1,15 @@
 <!--
 Sync Impact Report
-Version change: 1.1.0 → 1.2.0
+Version change: 1.2.0 → 1.3.0
 Modified principles: none
-Added sections: Phase-in rule (under Development Workflow & Quality Gates)
+Added sections: Exceptions rule (under Governance)
 Removed sections: none
-Invalidates: nothing. Makes explicit that a gate which depends on a capability not yet built
-  takes effect in the spec that introduces it. Currently deferred: principle VI record and
-  trace gate (owner spec 003) and the CI regression eval (owner spec 004).
+Invalidates: nothing. Gives a legitimate path for the one exception already decided for spec 002:
+  contract 1.1.0 adds error codes that the automated breaking-change check flags. Without this rule
+  that exception would be a silent violation of principle I.
 Follow-up TODOs: none
 
+Previous (1.2.0): phase-in rule for capability-dependent gates
 Previous (1.1.0): tool rule widened to read-only, allow-listed (principle IV)
 Previous (1.0.0): initial ratification of Core Principles I–VII, Technology Constraints,
   Development Workflow & Quality Gates, Governance
@@ -107,4 +108,13 @@ redefined principles, MINOR for added principles or materially expanded guidance
 clarifications. Compliance is checked in every plan (Constitution Check) and again before a
 component is marked implemented; unjustified violations block merge.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-21 | **Last Amended**: 2026-10-21
+**Exceptions.** A single, bounded exception to a MUST is allowed only when all of the following are
+written down before the exceptional change is applied: the reason, the owner's explicit decision, the
+exact scope (which check or rule, which change), and an expiry condition after which the exception
+is removed. The exception is recorded in the plan's Complexity Tracking and in the artifact that
+implements it. An exception never widens: a different violation needs its own record. Example: the
+contract 1.1.0 error-code exception of spec 002 (reason: new failure codes; decision: owner, during
+planning; scope: seven named findings of the breaking-change check; expiry: delete
+`contracts/oasdiff-ignore.txt` once 1.1.0 is the baseline on the default branch).
+
+**Version**: 1.3.0 | **Ratified**: 2026-10-21 | **Last Amended**: 2026-10-21

@@ -1,22 +1,22 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 1.3.1 → 1.3.2
-Bump rationale: PATCH — status transition and clarifying notes only, from the spec 001 debrief
-  (specs/001-service-foundation/roadmap-reviews/debrief-20261021-103530.md, findings F2 and F3)
+Version change: 1.3.2 → 1.4.0
+Bump rationale: MINOR — material scope changes to specs 002 and 004 from the spec 002 clarification,
+  planning and analysis (constitution 1.2.0 phase-in rule: the roadmap names the owner of each deferred gate)
 
 Changes this revision:
-  - Spec 001: in-progress → implemented (verified is withheld until the CI gate is proven, task T049)
-  - C-11 annotated: the CI eval gate starts in spec 004; the streaming load test was delivered in 001
-  - Spec 001 Notes: final error codes, MAX_MESSAGES cap, health route paths, request summary log
+  - Spec 002: planned → specced; spec dir recorded; scope made explicit (OpenAI and Anthropic, in-tier
+    fallback only, complete-answer helper, per-tier generation ceilings, overall pre-output wait,
+    contract 1.1.0 with a one-time owner-approved exception)
+  - Spec 004: now also owns the eval gate for changes to the models serving a tier (constitution II,
+    deferred from spec 002)
 
-Specs affected: 001
+Specs affected: 002, 004
 Open questions added/resolved: none
-Not applied: debrief F4 (readiness probes dependencies 001 does not use) is a spec assumption to
-  decide, not a roadmap change; F1 needs the repository on GitHub.
 
-Previous (1.3.1): spec 001 in-progress; (1.3.0): scope of 003/004 extended with gates deferred from 001;
-  (1.2.0): rate-limit contract; (1.1.0): tools widened; (1.0.0): initial creation
+Previous (1.3.2): spec 001 implemented; (1.3.1): spec 001 in-progress; (1.3.0): scope of 003/004 extended
+  with gates deferred from 001; (1.2.0): rate-limit contract; (1.1.0): tools widened; (1.0.0): initial creation
 -->
 
 # AI-Services — Spec Roadmap
@@ -91,16 +91,23 @@ Status legend (lifecycle): **undecided** · **needs-info** · **planned** ·
   `/v1/health/live` and `/v1/health/ready`; every request logs one `request_finished` line (method,
   path, status, duration). Not yet `verified`: the CI gate has never run on GitHub (task T049).
 
-### 002 — LLM gateway  [status: planned]
+### 002 — LLM gateway  [status: specced]
 
 - **Description:** LiteLLM wrapper with model tiers, timeouts, retries, fallback and streaming
   normalisation.
 - **Outcome:** any component can request a completion by tier and receive a uniform stream.
-- **Scope (in):** tier config, pinned model IDs, retries and fallback, stream normalisation,
-  stubbed provider for tests.
-- **Scope (out):** routing decisions (spec 006), cost recording (spec 003).
+- **Scope (in):** tier config, pinned model IDs (Anthropic and OpenAI, plus a stub), retries and
+  in-tier fallback, stream normalisation, a complete-answer helper for internal callers, per-tier
+  generation ceilings, four time limits including an overall wait for the first output, a per-model
+  failure cool-down, content-free completion logs, and contract 1.1.0 (new provider error codes).
+- **Scope (out):** routing decisions (spec 006), cost recording (spec 003), fallback across tiers
+  (never), tools, retrieval, caching, guardrails.
 - **Depends on:** 001
 - **Governed by:** C-03
+- **Spec dir:** specs/002-llm-gateway/
+- **Notes:** contract 1.1.0 is a one-time, owner-approved exception: the new error codes (made an
+  extensible enum) are flagged by the breaking-change check, so the gate carries a single-use ignore
+  list that is deleted once 1.1.0 is the baseline (constitution 1.3.0, Exceptions).
 
 ### 003 — Cost tracker + eval logger  [status: planned]
 
@@ -119,7 +126,8 @@ Status legend (lifecycle): **undecided** · **needs-info** · **planned** ·
 - **Outcome:** a question returns a grounded streamed answer with citations from the tenant's KB.
 - **Scope (in):** ingestion, chunking, embedding, tenant-scoped retrieval, citation events,
   retrieval eval set, admin re-index endpoint, and the first CI regression eval job (constitution II,
-  deferred from spec 001 because no evaluable behavior exists before this spec).
+  deferred from spec 001 because no evaluable behavior exists before this spec), and the eval
+  gate for any change to the models that serve a tier (constitution II, deferred from spec 002).
 - **Scope (out):** upload API with async jobs.
 - **Depends on:** 001, 002
 - **Governed by:** C-05
@@ -199,4 +207,4 @@ Status legend (lifecycle): **undecided** · **needs-info** · **planned** ·
 
 ---
 
-**Version**: 1.3.2 | **Ratified**: 2026-10-21 | **Last Amended**: 2026-10-21
+**Version**: 1.4.0 | **Ratified**: 2026-10-21 | **Last Amended**: 2026-10-21

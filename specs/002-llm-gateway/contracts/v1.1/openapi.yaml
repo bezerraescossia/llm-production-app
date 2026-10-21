@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: AI-Services API
+  version: 1.1.0
+  description: >
+    Contract between the API gateway and the AI-services layer. The major version is carried in the URL path.
+    Spec 001 returns a deterministic placeholder answer; later specs change what the stream contains, not its shape.
+servers:
+  - url: http://localhost:8080
+security:
+  - serviceToken: []
+paths:
+  /v1/chat/stream:
+    post:
+      operationId: chatStream
+      summary: Stream an answer to a chat request as server-sent events
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: >
+            Stream of events. Each frame has `id` (sequence from 0), `event` (type) and `data` (JSON payload
+            defined in events.schema.json). The stream ends with exactly one `done` or `error` event.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            X-Contract-Version:
+              $ref: '#/components/headers/ContractVersion'
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: Server-sent events; payloads are defined in events.schema.json.
+        '400':
+          $ref: '#/components/responses/InvalidIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+        '503':
+          $ref: '#/components/responses/ShuttingDown'
+        '504':
+          $ref: '#/components/responses/GatewayTimeout'
+  /v1/health/live:
+    get:
+      operationId: healthLive
+      summary: Liveness check (open, status only)
+      security: []
+      responses:
+        '200':
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Liveness'
+  /v1/health/ready:
+    get:
+      operationId: healthReady
+      summary: Readiness check; per-dependency detail only with the service credential
+      security:
+        - {}
+        - serviceToken: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+        '503':
+          description: Not ready (or shutting down).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Readiness'
+  /v1/contract:
+    get:
+      operationId: getContract
+      summary: Report the contract version served
+      security: []
+      responses:
+        '200':
+          description: Contract version in use.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContractInfo'
+components:
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: Service credential issued to the gateway. Up to two are valid at once during rotation.
+  parameters:
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    UserId:
+      name: X-User-Id
+      in: header
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: Reused when valid, otherwise generated.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{8,128}$'
+  headers:
+    RequestId:
+      description: Request identifier present on every response.
+      schema:
+        type: string
+    ContractVersion:
+      description: Semantic version of the contract being served.
+      schema:
+        type: string
+    RetryAfter:
+      description: Seconds to wait before retrying.
+      schema:
+        type: integer
+        minimum: 0
+  schemas:
+    Identifier:
+      type: string
+      pattern: '^[A-Za-z0-9._:@-]{1,128}$'
+    ChatRequest:
+      type: object
+      additionalProperties: false
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: Full ordered history; the last message has role user.
+          items:
+            $ref: '#/components/schemas/Message'
+    Message:
+      type: object
+      additionalProperties: false
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 32000
+    Liveness:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Readiness:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+        dependencies:
+          type: array
+          description: Present only for callers with the service credential.
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, status]
+            properties:
+              name:
+                type: string
+              status:
+                type: string
+                enum: [up, down]
+    ContractInfo:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          type: string
+          pattern: '^\d+\.\d+\.\d+$'
+    ErrorCode:
+      type: string
+      description: >
+        Stable machine-readable error code. The set grows over time: clients MUST treat a code they do not
+        recognise as a generic failure and use the HTTP status.
+      x-extensible-enum:
+        - unauthorized
+        - invalid_identity
+        - validation_error
+        - history_too_long
+        - payload_too_large
+        - rate_limited
+        - shutting_down
+        - not_found
+        - method_not_allowed
+        - upstream_unavailable
+        - upstream_timeout
+        - upstream_error
+        - input_too_large
+        - internal_error
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code:
+              $ref: '#/components/schemas/ErrorCode'
+            message:
+              type: string
+            request_id:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+            retry_after_seconds:
+              type: integer
+              minimum: 0
+  responses:
+    InvalidIdentity:
+      description: Tenant or user identity missing or invalid; `details.field` names the header.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid service credential.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PayloadTooLarge:
+      description: Body exceeds the size limit.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unprocessable:
+      description: >
+        Body fails validation (`validation_error`), history exceeds the message limit (`history_too_long`),
+        or the conversation is too large for every model of the tier (`input_too_large`).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Reserved. Defined by the contract in 001 and not emitted until rate limiting is enforced.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Unexpected failure before streaming started.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ShuttingDown:
+      description: >
+        Service is draining (`shutting_down`), or every model of the tier is unavailable or rate-limited
+        and nothing was streamed (`upstream_unavailable`).
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    BadGateway:
+      description: >
+        The model provider rejected the request in a way retries or fallback cannot fix
+        (`upstream_error`), for example a configuration or credential problem. Nothing was streamed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    GatewayTimeout:
+      description: Every attempt timed out before any output (`upstream_timeout`). Nothing was streamed.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

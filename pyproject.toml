@@ -11,6 +11,7 @@ dependencies = [
     "sse-starlette==3.5.0",
     "structlog==26.1.0",
     "pyyaml==6.0.3",
+    "litellm==1.106.2",
 ]
 
 [dependency-groups]
@@ -51,6 +52,8 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+addopts = "-m 'not live'"
+markers = ["live: real-provider checks, skipped unless selected with -m live and credentials are set"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts"]
